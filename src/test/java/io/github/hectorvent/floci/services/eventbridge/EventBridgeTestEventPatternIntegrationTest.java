@@ -129,6 +129,129 @@ class EventBridgeTestEventPatternIntegrationTest {
     }
 
     @Test
+    void accountMatchFromEventEnvelope() {
+        given()
+            .contentType(EVENT_BRIDGE_CONTENT_TYPE)
+            .header("X-Amz-Target", TARGET)
+            .body("""
+                {
+                    "EventPattern": "{\\"account\\":[\\"999999999999\\"]}",
+                    "Event": "{\\"source\\":\\"x\\",\\"detail-type\\":\\"y\\",\\"account\\":\\"999999999999\\",\\"detail\\":{}}"
+                }
+                """)
+        .when()
+            .post("/")
+        .then()
+            .statusCode(200)
+            .body("Result", equalTo(true));
+    }
+
+    @Test
+    void accountNoMatchFromEventEnvelope() {
+        given()
+            .contentType(EVENT_BRIDGE_CONTENT_TYPE)
+            .header("X-Amz-Target", TARGET)
+            .body("""
+                {
+                    "EventPattern": "{\\"account\\":[\\"999999999999\\"]}",
+                    "Event": "{\\"source\\":\\"x\\",\\"detail-type\\":\\"y\\",\\"account\\":\\"111111111111\\",\\"detail\\":{}}"
+                }
+                """)
+        .when()
+            .post("/")
+        .then()
+            .statusCode(200)
+            .body("Result", equalTo(false));
+    }
+
+    @Test
+    void regionMatchFromEventEnvelope() {
+        given()
+            .contentType(EVENT_BRIDGE_CONTENT_TYPE)
+            .header("X-Amz-Target", TARGET)
+            .body("""
+                {
+                    "EventPattern": "{\\"region\\":[\\"eu-west-1\\"]}",
+                    "Event": "{\\"source\\":\\"x\\",\\"detail-type\\":\\"y\\",\\"region\\":\\"eu-west-1\\",\\"detail\\":{}}"
+                }
+                """)
+        .when()
+            .post("/")
+        .then()
+            .statusCode(200)
+            .body("Result", equalTo(true));
+    }
+
+    @Test
+    void regionNoMatchFromEventEnvelope() {
+        given()
+            .contentType(EVENT_BRIDGE_CONTENT_TYPE)
+            .header("X-Amz-Target", TARGET)
+            .body("""
+                {
+                    "EventPattern": "{\\"region\\":[\\"eu-west-1\\"]}",
+                    "Event": "{\\"source\\":\\"x\\",\\"detail-type\\":\\"y\\",\\"region\\":\\"us-east-1\\",\\"detail\\":{}}"
+                }
+                """)
+        .when()
+            .post("/")
+        .then()
+            .statusCode(200)
+            .body("Result", equalTo(false));
+    }
+
+    @Test
+    void arrayEventRejected() {
+        given()
+            .contentType(EVENT_BRIDGE_CONTENT_TYPE)
+            .header("X-Amz-Target", TARGET)
+            .body("""
+                {
+                    "EventPattern": "{\\"source\\":[\\"com.myapp\\"]}",
+                    "Event": "[]"
+                }
+                """)
+        .when()
+            .post("/")
+        .then()
+            .statusCode(400);
+    }
+
+    @Test
+    void scalarEventRejected() {
+        given()
+            .contentType(EVENT_BRIDGE_CONTENT_TYPE)
+            .header("X-Amz-Target", TARGET)
+            .body("""
+                {
+                    "EventPattern": "{\\"source\\":[\\"com.myapp\\"]}",
+                    "Event": "true"
+                }
+                """)
+        .when()
+            .post("/")
+        .then()
+            .statusCode(400);
+    }
+
+    @Test
+    void nullLiteralEventRejected() {
+        given()
+            .contentType(EVENT_BRIDGE_CONTENT_TYPE)
+            .header("X-Amz-Target", TARGET)
+            .body("""
+                {
+                    "EventPattern": "{\\"source\\":[\\"com.myapp\\"]}",
+                    "Event": "null"
+                }
+                """)
+        .when()
+            .post("/")
+        .then()
+            .statusCode(400);
+    }
+
+    @Test
     void missingPatternRejected() {
         given()
             .contentType(EVENT_BRIDGE_CONTENT_TYPE)

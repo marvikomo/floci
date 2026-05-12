@@ -655,6 +655,10 @@ public class EventBridgeService {
             throw new AwsException("InvalidEventPatternException",
                     "Event is not valid JSON: " + e.getMessage(), 400);
         }
+        if (event == null || !event.isObject()) {
+            throw new AwsException("InvalidEventPatternException",
+                    "Event must be a JSON object.", 400);
+        }
         Map<String, Object> entry = new HashMap<>();
         if (event.hasNonNull("source")) {
             entry.put("Source", event.get("source").asText());
@@ -668,6 +672,12 @@ public class EventBridgeService {
         }
         if (event.hasNonNull("resources") && event.get("resources").isArray()) {
             entry.put("Resources", event.get("resources"));
+        }
+        if (event.hasNonNull("account")) {
+            entry.put("Account", event.get("account").asText());
+        }
+        if (event.hasNonNull("region")) {
+            entry.put("Region", event.get("region").asText());
         }
         return matchesPattern(entry, eventPattern);
     }
@@ -694,14 +704,20 @@ public class EventBridgeService {
             }
             JsonNode accountField = pattern.get("account");
             if (accountField != null && accountField.isArray()) {
-                String eventAccount = regionResolver.getAccountId();
+                // Prefer the entry's Account (set by TestEventPattern from the
+                // supplied event envelope); fall back to the caller's account
+                // for PutEvents rule dispatch, where the event always belongs
+                // to the caller.
+                String eventAccount = (String) event.getOrDefault(
+                        "Account", regionResolver.getAccountId());
                 if (!matchesArrayField(accountField, eventAccount)) {
                     return false;
                 }
             }
             JsonNode regionField = pattern.get("region");
             if (regionField != null && regionField.isArray()) {
-                String eventRegion = regionResolver.getDefaultRegion();
+                String eventRegion = (String) event.getOrDefault(
+                        "Region", regionResolver.getDefaultRegion());
                 if (!matchesArrayField(regionField, eventRegion)) {
                     return false;
                 }
