@@ -177,6 +177,46 @@ public class EventBridgeService {
                         "EventBus not found: " + effectiveName, 404));
     }
 
+    public EventBus updateEventBus(String name,
+                                   String description,
+                                   String kmsKeyIdentifier,
+                                   String deadLetterConfig,
+                                   String logConfig,
+                                   String region) {
+        // Name identifies the bus; never mutated (AWS does not support rename).
+        String effectiveName = name == null || name.isBlank() ? "default" : name;
+        EventBus bus = "default".equals(effectiveName)
+                ? getOrCreateDefaultBus(region)
+                : busStore.get(busKey(region, effectiveName))
+                        .orElseThrow(() -> new AwsException("ResourceNotFoundException",
+                                "EventBus not found: " + effectiveName, 404));
+
+        boolean dirty = false;
+        if (description != null && !description.isBlank()) {
+            bus.setDescription(description);
+            dirty = true;
+        }
+        if (kmsKeyIdentifier != null && !kmsKeyIdentifier.isBlank()) {
+            bus.setKmsKeyIdentifier(kmsKeyIdentifier);
+            dirty = true;
+        }
+        if (deadLetterConfig != null && !deadLetterConfig.isBlank()) {
+            bus.setDeadLetterConfig(deadLetterConfig);
+            dirty = true;
+        }
+        if (logConfig != null && !logConfig.isBlank()) {
+            bus.setLogConfig(logConfig);
+            dirty = true;
+        }
+
+        if (dirty) {
+            busStore.put(busKey(region, effectiveName), bus);
+            LOG.infov("Updated event bus: {0} (arn={1}) in region {2}",
+                    effectiveName, bus.getArn(), region);
+        }
+        return bus;
+    }
+
     public List<EventBus> listEventBuses(String namePrefix, String region) {
         getOrCreateDefaultBus(region);
         String storagePrefix = "bus:" + region + ":";
