@@ -530,12 +530,20 @@ public class EventBridgeHandler {
         if (bus.getDeadLetterConfig() != null) {
             try {
                 node.set("DeadLetterConfig", objectMapper.readTree(bus.getDeadLetterConfig()));
-            } catch (Exception ignored) { /* drop malformed stored config */ }
+            } catch (Exception e) {
+                LOG.warnv("Failed to parse stored DeadLetterConfig for bus {0} (arn={1}); "
+                        + "field omitted from response. Stored value: {2}. Error: {3}",
+                        bus.getName(), bus.getArn(), bus.getDeadLetterConfig(), e.getMessage());
+            }
         }
         if (bus.getLogConfig() != null) {
             try {
                 node.set("LogConfig", objectMapper.readTree(bus.getLogConfig()));
-            } catch (Exception ignored) { /* drop malformed stored config */ }
+            } catch (Exception e) {
+                LOG.warnv("Failed to parse stored LogConfig for bus {0} (arn={1}); "
+                        + "field omitted from response. Stored value: {2}. Error: {3}",
+                        bus.getName(), bus.getArn(), bus.getLogConfig(), e.getMessage());
+            }
         }
         return node;
     }

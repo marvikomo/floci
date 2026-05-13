@@ -191,20 +191,26 @@ public class EventBridgeService {
                         .orElseThrow(() -> new AwsException("ResourceNotFoundException",
                                 "EventBus not found: " + effectiveName, 404));
 
+        // Only mark dirty when a field is both non-blank AND different from
+        // the value currently on the bus — re-sending the same value is a no-op.
         boolean dirty = false;
-        if (description != null && !description.isBlank()) {
+        if (description != null && !description.isBlank()
+                && !description.equals(bus.getDescription())) {
             bus.setDescription(description);
             dirty = true;
         }
-        if (kmsKeyIdentifier != null && !kmsKeyIdentifier.isBlank()) {
+        if (kmsKeyIdentifier != null && !kmsKeyIdentifier.isBlank()
+                && !kmsKeyIdentifier.equals(bus.getKmsKeyIdentifier())) {
             bus.setKmsKeyIdentifier(kmsKeyIdentifier);
             dirty = true;
         }
-        if (deadLetterConfig != null && !deadLetterConfig.isBlank()) {
+        if (deadLetterConfig != null && !deadLetterConfig.isBlank()
+                && !deadLetterConfig.equals(bus.getDeadLetterConfig())) {
             bus.setDeadLetterConfig(deadLetterConfig);
             dirty = true;
         }
-        if (logConfig != null && !logConfig.isBlank()) {
+        if (logConfig != null && !logConfig.isBlank()
+                && !logConfig.equals(bus.getLogConfig())) {
             bus.setLogConfig(logConfig);
             dirty = true;
         }
