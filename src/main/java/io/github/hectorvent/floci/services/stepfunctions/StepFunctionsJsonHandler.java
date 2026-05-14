@@ -36,6 +36,7 @@ public class StepFunctionsJsonHandler {
             case "DescribeStateMachine" -> handleDescribeStateMachine(request);
             case "ListStateMachines" -> handleListStateMachines(request, region);
             case "DeleteStateMachine" -> handleDeleteStateMachine(request);
+            case "ValidateStateMachineDefinition" -> handleValidateStateMachineDefinition(request);
             case "StartExecution" -> handleStartExecution(request, region);
             case "StartSyncExecution" -> handleStartSyncExecution(request, region);
             case "DescribeExecution" -> handleDescribeExecution(request);
@@ -104,6 +105,32 @@ public class StepFunctionsJsonHandler {
     private Response handleDeleteStateMachine(JsonNode request) {
         service.deleteStateMachine(request.path("stateMachineArn").asText());
         return Response.ok(objectMapper.createObjectNode()).build();
+    }
+
+    private Response handleValidateStateMachineDefinition(JsonNode request) {
+        String definition = request.path("definition").asText(null);
+        String type = request.path("type").asText(null);
+        String severity = request.path("severity").asText(null);
+        Integer maxResults = request.has("maxResults") ? request.get("maxResults").asInt() : null;
+
+        StepFunctionsService.ValidationResult result =
+                service.validateStateMachineDefinition(definition, type, severity, maxResults);
+
+        ObjectNode response = objectMapper.createObjectNode();
+        response.put("result", result.valid() ? "OK" : "FAIL");
+        ArrayNode diags = response.putArray("diagnostics");
+        for (StepFunctionsService.Diagnostic d : result.diagnostics()) {
+            ObjectNode node = objectMapper.createObjectNode();
+            node.put("severity", d.severity());
+            node.put("code", d.code());
+            node.put("message", d.message());
+            if (!d.location().isBlank()) {
+                node.put("location", d.location());
+            }
+            diags.add(node);
+        }
+        response.put("truncated", result.truncated());
+        return Response.ok(response).build();
     }
 
     private Response handleStartExecution(JsonNode request, String region) {
