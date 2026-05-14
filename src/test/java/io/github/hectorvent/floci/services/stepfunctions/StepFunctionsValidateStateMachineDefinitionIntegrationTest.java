@@ -3,6 +3,7 @@ package io.github.hectorvent.floci.services.stepfunctions;
 import io.github.hectorvent.floci.testing.RestAssuredJsonUtils;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.response.Response;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -150,7 +151,8 @@ class StepFunctionsValidateStateMachineDefinitionIntegrationTest {
                 .extract().jsonPath().getList("stateMachines").size();
 
         // Same count proves validate didn't create a state machine.
-        assert after == before : "validate must not touch storage (before=" + before + " after=" + after + ")";
+        Assertions.assertEquals(before, after,
+                "validate must not touch storage (before=" + before + " after=" + after + ")");
     }
 
     @Test
@@ -194,6 +196,26 @@ class StepFunctionsValidateStateMachineDefinitionIntegrationTest {
     void typeInvalidEnumRejected() {
         given().contentType(CT).header("X-Amz-Target", TARGET)
                 .body("{\"definition\":\"" + VALID_ASL + "\",\"type\":\"BOGUS\"}")
+                .when().post("/")
+                .then().statusCode(400)
+                .body("__type", containsString("ValidationException"));
+    }
+
+    @Test
+    void maxResultsNonIntegerRejected() {
+        // JsonNode.asInt() would silently coerce "abc" to 0, which the service then
+        // treats as "use default". Reject at the handler boundary instead.
+        given().contentType(CT).header("X-Amz-Target", TARGET)
+                .body("{\"definition\":\"" + VALID_ASL + "\",\"maxResults\":\"abc\"}")
+                .when().post("/")
+                .then().statusCode(400)
+                .body("__type", containsString("ValidationException"));
+    }
+
+    @Test
+    void maxResultsFractionalRejected() {
+        given().contentType(CT).header("X-Amz-Target", TARGET)
+                .body("{\"definition\":\"" + VALID_ASL + "\",\"maxResults\":1.7}")
                 .when().post("/")
                 .then().statusCode(400)
                 .body("__type", containsString("ValidationException"));

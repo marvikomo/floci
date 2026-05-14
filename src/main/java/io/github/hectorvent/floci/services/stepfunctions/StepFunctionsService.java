@@ -360,12 +360,6 @@ public class StepFunctionsService {
     public record Diagnostic(String severity, String code, String message, String location) {}
     public record ValidationResult(boolean valid, List<Diagnostic> diagnostics, boolean truncated) {}
 
-    /**
-     * Exposes the existing ASL validator as a public, non-throwing API for
-     * AWS {@code ValidateStateMachineDefinition}. Errors are returned as
-     * diagnostics rather than thrown; no state machine is created. Mirrors
-     * the wire shape of the AWS API.
-     */
     private static final int MAX_DEFINITION_LENGTH = 1_048_576;
     private static final String PARSE_ERROR_MARKER = "INVALID_JSON_DESCRIPTION:";
 
@@ -375,6 +369,12 @@ public class StepFunctionsService {
     private static final Pattern FIELD_PATTERN = Pattern.compile("field '([^']+)' is only supported");
     private static final Pattern LOCATION_SUFFIX_PATTERN = Pattern.compile(" at (/States/\\S+)$");
 
+    /**
+     * Exposes the existing ASL validator as a public, non-throwing API for
+     * AWS {@code ValidateStateMachineDefinition}. Errors are returned as
+     * diagnostics rather than thrown; no state machine is created. Mirrors
+     * the wire shape of the AWS API.
+     */
     public ValidationResult validateStateMachineDefinition(String definition, String type,
                                                            String severity, Integer maxResults) {
         if (definition == null || definition.isBlank()) {
@@ -405,8 +405,19 @@ public class StepFunctionsService {
         List<Diagnostic> all = errors.stream()
                 .map(StepFunctionsService::toDiagnostic)
                 .toList();
-        boolean truncated = all.size() > cap;
-        List<Diagnostic> page = truncated ? all.subList(0, cap) : all;
+
+        // Apply the severity filter per spec: ERROR (the default) returns only
+        // error diagnostics; WARNING returns both warnings and errors. Floci's
+        // validator only emits ERROR today so the filter is currently a no-op,
+        // but it's wired now so adding warning-level checks later doesn't break
+        // the contract for callers who passed severity=ERROR.
+        String effectiveSeverity = severity == null || severity.isBlank() ? "ERROR" : severity;
+        List<Diagnostic> filtered = "WARNING".equals(effectiveSeverity)
+                ? all
+                : all.stream().filter(d -> "ERROR".equals(d.severity())).toList();
+
+        boolean truncated = filtered.size() > cap;
+        List<Diagnostic> page = truncated ? filtered.subList(0, cap) : filtered;
         // valid == "no ERROR-level diagnostics". Floci only produces ERRORs today;
         // explicit check future-proofs us when warnings are added.
         boolean valid = page.stream().noneMatch(d -> "ERROR".equals(d.severity()));
@@ -418,7 +429,9 @@ public class StepFunctionsService {
         String code = isParseError ? "INVALID_JSON_DESCRIPTION" : "SCHEMA_VALIDATION_FAILED";
         String message = isParseError
                 ? error.substring(PARSE_ERROR_MARKER.length()).trim() : error;
-        String location = "";
+        // null when there's no specific location to point to — handler omits the
+        // field from the response in that case, matching AWS's "optional" semantics.
+        String location = null;
         if (!isParseError) {
             Matcher locM = LOCATION_SUFFIX_PATTERN.matcher(message);
             Matcher fieldM = FIELD_PATTERN.matcher(message);
