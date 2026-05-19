@@ -83,25 +83,10 @@ public class EcsService {
     @Inject
     public EcsService(RegionResolver regionResolver, EcsContainerManager containerManager,
                       EmulatorConfig config, EcsLoadBalancerRegistrar lbRegistrar) {
-        this(regionResolver, containerManager, !config.services().ecs().mock(),
-                config.effectiveBaseUrl(), lbRegistrar);
-    }
-
-    EcsService(RegionResolver regionResolver, EcsContainerManager containerManager) {
-        this(regionResolver, containerManager, false, "http://localhost:4566", null);
-    }
-
-    EcsService(RegionResolver regionResolver, EcsContainerManager containerManager, boolean dockerMode,
-               String baseUrl) {
-        this(regionResolver, containerManager, dockerMode, baseUrl, null);
-    }
-
-    EcsService(RegionResolver regionResolver, EcsContainerManager containerManager, boolean dockerMode,
-               String baseUrl, EcsLoadBalancerRegistrar lbRegistrar) {
         this.regionResolver = regionResolver;
         this.containerManager = containerManager;
-        this.dockerMode = dockerMode;
-        this.baseUrl = baseUrl;
+        this.dockerMode = !config.services().ecs().mock();
+        this.baseUrl = config.effectiveBaseUrl();
         this.lbRegistrar = lbRegistrar;
     }
 
@@ -359,7 +344,7 @@ public class EcsService {
 
     /** Registers a freshly-started task's containers as ELBv2 targets if its service is load-balanced. */
     private void registerTaskWithLoadBalancers(EcsTask task, EcsCluster cluster, String group, String region) {
-        if (lbRegistrar == null || group == null) {
+        if (group == null) {
             return;
         }
         EcsServiceModel svc = services.get(serviceKey(region, cluster.getClusterName(), group));
@@ -372,7 +357,7 @@ public class EcsService {
     private void deregisterTaskFromLoadBalancers(EcsTask task, String region) {
         // Gated on dockerMode for symmetry with the register hook (inside launchTasks'
         // dockerMode branch): mock-mode tasks have no containers and never registered.
-        if (!dockerMode || lbRegistrar == null || task.getGroup() == null) {
+        if (!dockerMode || task.getGroup() == null) {
             return;
         }
         EcsCluster cluster = resolveClusterByArn(task.getClusterArn());
