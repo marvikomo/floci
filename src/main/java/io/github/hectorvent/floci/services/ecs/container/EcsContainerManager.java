@@ -192,16 +192,43 @@ public class EcsContainerManager {
         try {
             var inspect = lifecycleManager.getDockerClient().inspectContainerCmd(dockerId).exec();
             var networks = inspect.getNetworkSettings().getNetworks();
+
+            // A container can be on multiple networks; getNetworks() is unordered.
+            // Pick an IP that the Floci/ELBv2 process can actually route to:
+            // 1. the explicitly-configured ECS Docker network, if set;
+            // 2. otherwise any user-defined network (Floci joins one when in Docker)
+            //    in preference to the default bridge;
+            // 3. otherwise the first non-blank IP.
+            String configured = config.services().ecs().dockerNetwork().orElse(null);
+            if (configured != null && !configured.isBlank()) {
+                var net = networks.get(configured);
+                if (net != null && isUsableIp(net.getIpAddress())) {
+                    return net.getIpAddress();
+                }
+            }
+            for (var entry : networks.entrySet()) {
+                if (!isDefaultDockerNetwork(entry.getKey())
+                        && isUsableIp(entry.getValue().getIpAddress())) {
+                    return entry.getValue().getIpAddress();
+                }
+            }
             for (var net : networks.values()) {
-                String ip = net.getIpAddress();
-                if (ip != null && !ip.isBlank()) {
-                    return ip;
+                if (isUsableIp(net.getIpAddress())) {
+                    return net.getIpAddress();
                 }
             }
         } catch (Exception e) {
             LOG.warnv("Could not resolve container IP for {0}: {1}", dockerId, e.getMessage());
         }
         return "127.0.0.1";
+    }
+
+    private static boolean isUsableIp(String ip) {
+        return ip != null && !ip.isBlank();
+    }
+
+    private static boolean isDefaultDockerNetwork(String name) {
+        return "bridge".equals(name) || "host".equals(name) || "none".equals(name);
     }
 
     private List<NetworkBinding> resolveNetworkBindings(String dockerId, ContainerDefinition def) {
