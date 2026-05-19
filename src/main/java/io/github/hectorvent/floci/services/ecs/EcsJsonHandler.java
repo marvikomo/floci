@@ -7,6 +7,7 @@ import io.github.hectorvent.floci.services.ecs.model.ClusterSetting;
 import io.github.hectorvent.floci.services.ecs.model.ContainerDefinition;
 import io.github.hectorvent.floci.services.ecs.model.ContainerInstance;
 import io.github.hectorvent.floci.services.ecs.model.EcsCluster;
+import io.github.hectorvent.floci.services.ecs.model.EcsLoadBalancer;
 import io.github.hectorvent.floci.services.ecs.model.EcsServiceModel;
 import io.github.hectorvent.floci.services.ecs.model.EcsTask;
 import io.github.hectorvent.floci.services.ecs.model.KeyValuePair;
@@ -370,13 +371,30 @@ public class EcsJsonHandler {
         String taskDefinition = req.path("taskDefinition").asText();
         int desiredCount = req.path("desiredCount").asInt(1);
         LaunchType launchType = parseEnum(req, "launchType", LaunchType.class);
+        List<EcsLoadBalancer> loadBalancers = parseLoadBalancers(req.path("loadBalancers"));
 
         EcsServiceModel svc = service.createService(cluster, serviceName, taskDefinition,
-                desiredCount, launchType, region);
+                desiredCount, launchType, loadBalancers, region);
 
         ObjectNode resp = objectMapper.createObjectNode();
         resp.set("service", serviceNode(svc));
         return Response.ok(resp).build();
+    }
+
+    private List<EcsLoadBalancer> parseLoadBalancers(JsonNode node) {
+        List<EcsLoadBalancer> result = new ArrayList<>();
+        if (node == null || !node.isArray()) {
+            return result;
+        }
+        for (JsonNode lb : node) {
+            EcsLoadBalancer m = new EcsLoadBalancer();
+            if (lb.hasNonNull("targetGroupArn")) { m.setTargetGroupArn(lb.path("targetGroupArn").asText()); }
+            if (lb.hasNonNull("loadBalancerName")) { m.setLoadBalancerName(lb.path("loadBalancerName").asText()); }
+            if (lb.hasNonNull("containerName")) { m.setContainerName(lb.path("containerName").asText()); }
+            if (lb.hasNonNull("containerPort")) { m.setContainerPort(lb.path("containerPort").asInt()); }
+            result.add(m);
+        }
+        return result;
     }
 
     private Response handleUpdateService(JsonNode req, String region) {
@@ -954,6 +972,18 @@ public class EcsJsonHandler {
         if (s.getNamespace() != null) { n.put("namespace", s.getNamespace()); }
         if (s.getTags() != null && !s.getTags().isEmpty()) {
             n.set("tags", tagsNode(s.getTags()));
+        }
+        if (s.getLoadBalancers() != null && !s.getLoadBalancers().isEmpty()) {
+            ArrayNode lbs = objectMapper.createArrayNode();
+            for (EcsLoadBalancer lb : s.getLoadBalancers()) {
+                ObjectNode ln = objectMapper.createObjectNode();
+                if (lb.getTargetGroupArn() != null) { ln.put("targetGroupArn", lb.getTargetGroupArn()); }
+                if (lb.getLoadBalancerName() != null) { ln.put("loadBalancerName", lb.getLoadBalancerName()); }
+                if (lb.getContainerName() != null) { ln.put("containerName", lb.getContainerName()); }
+                if (lb.getContainerPort() != null) { ln.put("containerPort", lb.getContainerPort()); }
+                lbs.add(ln);
+            }
+            n.set("loadBalancers", lbs);
         }
         return n;
     }

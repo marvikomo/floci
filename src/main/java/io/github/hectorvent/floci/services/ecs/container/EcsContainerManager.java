@@ -173,6 +173,37 @@ public class EcsContainerManager {
         return envVars;
     }
 
+    /**
+     * Resolves the host address at which a running task container is reachable from the
+     * Floci process — used to register the container as an ELBv2 target.
+     * <p>
+     * Native mode: the container's port is published to a host port, reachable at
+     * {@code 127.0.0.1}. Floci-in-Docker mode: the container is reached by its IP on the
+     * shared Docker network. Returns {@code 127.0.0.1} as a safe fallback.
+     */
+    public String resolveContainerHost(Container container) {
+        if (!containerDetector.isRunningInContainer()) {
+            return "127.0.0.1";
+        }
+        String dockerId = container.getDockerId();
+        if (dockerId == null || dockerId.isBlank()) {
+            return "127.0.0.1";
+        }
+        try {
+            var inspect = lifecycleManager.getDockerClient().inspectContainerCmd(dockerId).exec();
+            var networks = inspect.getNetworkSettings().getNetworks();
+            for (var net : networks.values()) {
+                String ip = net.getIpAddress();
+                if (ip != null && !ip.isBlank()) {
+                    return ip;
+                }
+            }
+        } catch (Exception e) {
+            LOG.warnv("Could not resolve container IP for {0}: {1}", dockerId, e.getMessage());
+        }
+        return "127.0.0.1";
+    }
+
     private List<NetworkBinding> resolveNetworkBindings(String dockerId, ContainerDefinition def) {
         List<NetworkBinding> bindings = new ArrayList<>();
         if (def.getPortMappings() == null || def.getPortMappings().isEmpty()) {
