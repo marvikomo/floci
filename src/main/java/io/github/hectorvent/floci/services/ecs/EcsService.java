@@ -370,7 +370,9 @@ public class EcsService {
 
     /** Deregisters a stopping task's containers from any ELBv2 target groups its service declared. */
     private void deregisterTaskFromLoadBalancers(EcsTask task, String region) {
-        if (lbRegistrar == null || task.getGroup() == null) {
+        // Gated on dockerMode for symmetry with the register hook (inside launchTasks'
+        // dockerMode branch): mock-mode tasks have no containers and never registered.
+        if (!dockerMode || lbRegistrar == null || task.getGroup() == null) {
             return;
         }
         EcsCluster cluster = resolveClusterByArn(task.getClusterArn());
