@@ -13,6 +13,8 @@ import io.github.hectorvent.floci.services.apigatewayv2.model.Authorizer;
 import io.github.hectorvent.floci.services.apigatewayv2.model.Route;
 import io.github.hectorvent.floci.services.apigatewayv2.websocket.ConnectionInfo;
 import io.github.hectorvent.floci.services.apigatewayv2.websocket.WebSocketConnectionManager;
+import io.github.hectorvent.floci.services.elbv2.ElbV2Service;
+import io.github.hectorvent.floci.services.elbv2.model.Listener;
 import io.github.hectorvent.floci.services.lambda.LambdaArnUtils;
 import io.github.hectorvent.floci.services.lambda.LambdaService;
 import io.github.hectorvent.floci.services.lambda.model.InvocationType;
@@ -21,6 +23,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.smallrye.common.annotation.Blocking;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.*;
@@ -64,13 +67,15 @@ public class ApiGatewayExecuteController {
     private final VtlTemplateEngine vtlEngine;
     private final AwsServiceRouter serviceRouter;
     private final WebSocketConnectionManager webSocketConnectionManager;
+    private final ElbV2Service elbV2Service;
 
     @Inject
     public ApiGatewayExecuteController(ApiGatewayService apiGatewayService, ApiGatewayV2Service apiGatewayV2Service,
                                        LambdaService lambdaService, RegionResolver regionResolver,
                                        ObjectMapper objectMapper, VtlTemplateEngine vtlEngine,
                                        AwsServiceRouter serviceRouter,
-                                       WebSocketConnectionManager webSocketConnectionManager) {
+                                       WebSocketConnectionManager webSocketConnectionManager,
+                                       ElbV2Service elbV2Service) {
         this.apiGatewayService = apiGatewayService;
         this.apiGatewayV2Service = apiGatewayV2Service;
         this.lambdaService = lambdaService;
@@ -79,7 +84,16 @@ public class ApiGatewayExecuteController {
         this.vtlEngine = vtlEngine;
         this.serviceRouter = serviceRouter;
         this.webSocketConnectionManager = webSocketConnectionManager;
+        this.elbV2Service = elbV2Service;
     }
+
+    /**
+     * Matches an ELBv2 ALB listener ARN. The CDK {@code HttpAlbIntegration} stores one of
+     * these as the integration URI; we need to resolve it to a real {@code http://localhost:port}
+     * target so the request reaches the listener's data plane and on to the target group.
+     */
+    private static final Pattern ALB_LISTENER_ARN = Pattern.compile(
+            "^arn:aws[^:]*:elasticloadbalancing:([^:]+):[^:]*:listener/app/.+$");
 
     private record AuthorizerResult(Response errorResponse, String principalId, Map<String, Object> context) {}
 
@@ -143,6 +157,7 @@ public class ApiGatewayExecuteController {
     }
 
     @GET
+    @Blocking
     @Path("/{proxy: .*}")
     public Response handleGet(@Context HttpHeaders headers, @Context UriInfo uriInfo,
                               @PathParam("apiId") String apiId,
@@ -156,6 +171,7 @@ public class ApiGatewayExecuteController {
     }
 
     @POST
+    @Blocking
     @Path("/{proxy: .*}")
     public Response handlePost(@Context HttpHeaders headers, @Context UriInfo uriInfo,
                                @PathParam("apiId") String apiId,
@@ -170,6 +186,7 @@ public class ApiGatewayExecuteController {
     }
 
     @PUT
+    @Blocking
     @Path("/{proxy: .*}")
     public Response handlePut(@Context HttpHeaders headers, @Context UriInfo uriInfo,
                               @PathParam("apiId") String apiId,
@@ -180,6 +197,7 @@ public class ApiGatewayExecuteController {
     }
 
     @DELETE
+    @Blocking
     @Path("/{proxy: .*}")
     public Response handleDelete(@Context HttpHeaders headers, @Context UriInfo uriInfo,
                                  @PathParam("apiId") String apiId,
@@ -193,6 +211,7 @@ public class ApiGatewayExecuteController {
     }
 
     @PATCH
+    @Blocking
     @Path("/{proxy: .*}")
     public Response handlePatch(@Context HttpHeaders headers, @Context UriInfo uriInfo,
                                 @PathParam("apiId") String apiId,
@@ -1024,6 +1043,28 @@ public class ApiGatewayExecuteController {
                                           Route route, String httpMethod, String path,
                                           HttpHeaders headers, UriInfo uriInfo, byte[] body,
                                           String apiId, String stageName) {
+        // CDK HttpAlbIntegration sets integrationUri to an ALB listener ARN. Resolve it
+        // to the listener's bound localhost port so HttpProxyInvoker (which assumes a
+        // concrete http(s) URL) can forward through the listener's data plane.
+        io.github.hectorvent.floci.services.apigatewayv2.model.Integration effective = integration;
+        String integrationUri = integration.getIntegrationUri();
+        if (integrationUri != null) {
+            Matcher m = ALB_LISTENER_ARN.matcher(integrationUri);
+            if (m.matches()) {
+                String albRegion = m.group(1);
+                Integer listenerPort = resolveAlbListenerPort(albRegion, integrationUri);
+                if (listenerPort == null) {
+                    LOG.warnv("ALB listener ARN unresolvable for v2 integration: {0}", integrationUri);
+                    return Response.status(502)
+                            .entity(jsonMessage("Bad Gateway: cannot resolve ALB listener: " + integrationUri))
+                            .type(MediaType.APPLICATION_JSON).build();
+                }
+                String resolvedUrl = "http://localhost:" + listenerPort + path;
+                effective = withResolvedUri(integration, resolvedUrl);
+                LOG.debugv("ALB integration: listener {0} → {1}", integrationUri, resolvedUrl);
+            }
+        }
+
         Map<String, String> requestHeaders = new java.util.LinkedHashMap<>();
         for (Map.Entry<String, List<String>> e : headers.getRequestHeaders().entrySet()) {
             requestHeaders.put(e.getKey(), String.join(",", e.getValue()));
@@ -1053,10 +1094,10 @@ public class ApiGatewayExecuteController {
                         claims, Map.of());
 
         LOG.debugv("execute-api v2: {0} {1}/{2}{3} → HTTP_PROXY {4}",
-                httpMethod, apiId, stageName, path, integration.getIntegrationUri());
+                httpMethod, apiId, stageName, path, effective.getIntegrationUri());
 
         io.github.hectorvent.floci.services.apigatewayv2.proxy.ProxyResult result =
-                httpProxyInvoker.invoke(integration, ctx);
+                httpProxyInvoker.invoke(effective, ctx);
 
         Response.ResponseBuilder rb = Response.status(result.statusCode());
         if (result.body() != null) rb.entity(result.body());
@@ -1066,6 +1107,45 @@ public class ApiGatewayExecuteController {
             }
         }
         return rb.build();
+    }
+
+    /**
+     * Resolves an ALB listener ARN to its bound port via {@link ElbV2Service#describeListeners}.
+     * Returns {@code null} if the listener is unknown (deleted, never created, or the
+     * underlying region has no listener map) or if describeListeners throws.
+     */
+    private Integer resolveAlbListenerPort(String region, String listenerArn) {
+        try {
+            List<Listener> matches = elbV2Service.describeListeners(region, null, List.of(listenerArn));
+            if (matches.isEmpty()) return null;
+            return matches.get(0).getPort();
+        } catch (Exception e) {
+            LOG.warnv("describeListeners failed for {0}: {1}", listenerArn, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Returns a shallow copy of {@code original} with its {@code integrationUri} replaced.
+     * The stored Integration must not be mutated — it's the live object held by the store.
+     */
+    private static io.github.hectorvent.floci.services.apigatewayv2.model.Integration withResolvedUri(
+            io.github.hectorvent.floci.services.apigatewayv2.model.Integration original, String targetUri) {
+        io.github.hectorvent.floci.services.apigatewayv2.model.Integration copy =
+                new io.github.hectorvent.floci.services.apigatewayv2.model.Integration();
+        copy.setIntegrationId(original.getIntegrationId());
+        copy.setIntegrationType(original.getIntegrationType());
+        copy.setConnectionType(original.getConnectionType());
+        copy.setConnectionId(original.getConnectionId());
+        copy.setIntegrationUri(targetUri);
+        copy.setIntegrationMethod(original.getIntegrationMethod());
+        copy.setPayloadFormatVersion(original.getPayloadFormatVersion());
+        copy.setRequestParameters(original.getRequestParameters());
+        copy.setRequestTemplates(original.getRequestTemplates());
+        copy.setResponseTemplates(original.getResponseTemplates());
+        copy.setTemplateSelectionExpression(original.getTemplateSelectionExpression());
+        copy.setTimeoutInMillis(original.getTimeoutInMillis());
+        return copy;
     }
 
     private static String extractBearerToken(HttpHeaders headers) {

@@ -19,6 +19,7 @@ public class Integration {
     private Map<String, String> responseTemplates;
     private String templateSelectionExpression;
     private Map<String, String> requestParameters;
+    private String connectionId; // VPC Link id when connectionType is VPC_LINK
 
     public Integration() {}
 
@@ -54,4 +55,7 @@ public class Integration {
 
     public Map<String, String> getRequestParameters() { return requestParameters; }
     public void setRequestParameters(Map<String, String> requestParameters) { this.requestParameters = requestParameters; }
+
+    public String getConnectionId() { return connectionId; }
+    public void setConnectionId(String connectionId) { this.connectionId = connectionId; }
 }
