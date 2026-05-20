@@ -14,6 +14,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.regex.Matcher;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -125,5 +126,65 @@ class ApiGatewayProxyMatchTest {
 
         assertNull(ctrl.matchResource(List.of(authProxy), "/"));
         assertNull(ctrl.matchResource(List.of(authProxy), "/other/path"));
+    }
+
+    // ──────────────────────────── ELB_LISTENER_ARN ────────────────────────────
+
+    @Test
+    void elbListenerArnMatchesAlbAndExtractsRegion() {
+        Matcher m = ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "arn:aws:elasticloadbalancing:us-east-1:000000000000:listener/app/my-lb/abcdef0123456789/0011223344556677");
+        assertTrue(m.matches());
+        assertEquals("us-east-1", m.group(1));
+    }
+
+    @Test
+    void elbListenerArnMatchesNlb() {
+        Matcher m = ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "arn:aws:elasticloadbalancing:us-west-2:000000000000:listener/net/my-nlb/abcdef0123456789/0011223344556677");
+        assertTrue(m.matches());
+        assertEquals("us-west-2", m.group(1));
+    }
+
+    @Test
+    void elbListenerArnMatchesGovAndChinaPartitions() {
+        assertTrue(ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "arn:aws-us-gov:elasticloadbalancing:us-gov-west-1:0:listener/app/lb/a/b").matches());
+        assertTrue(ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "arn:aws-cn:elasticloadbalancing:cn-north-1:0:listener/net/lb/a/b").matches());
+    }
+
+    @Test
+    void elbListenerArnRejectsNonListenerElbArns() {
+        // LoadBalancer ARN, not a listener
+        assertFalse(ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "arn:aws:elasticloadbalancing:us-east-1:0:loadbalancer/app/my-lb/abc").matches());
+        // Target group ARN
+        assertFalse(ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "arn:aws:elasticloadbalancing:us-east-1:0:targetgroup/my-tg/abc").matches());
+        // Listener rule ARN
+        assertFalse(ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "arn:aws:elasticloadbalancing:us-east-1:0:listener-rule/app/lb/a/b/c").matches());
+    }
+
+    @Test
+    void elbListenerArnRejectsUnsupportedListenerSubtypes() {
+        // gateway / unknown lb subtypes — not yet supported by HttpAlbIntegration in CDK
+        assertFalse(ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "arn:aws:elasticloadbalancing:us-east-1:0:listener/gwy/lb/a/b").matches());
+        assertFalse(ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "arn:aws:elasticloadbalancing:us-east-1:0:listener/unknown/lb/a/b").matches());
+    }
+
+    @Test
+    void elbListenerArnRejectsOtherServiceArns() {
+        // Lambda function ARN — what AWS_PROXY integrations use; must NOT trigger ELB resolution
+        assertFalse(ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "arn:aws:lambda:us-east-1:0:function:my-fn").matches());
+        // Plain http URL — what regular HTTP_PROXY integrations use
+        assertFalse(ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher(
+                "http://example.com/path").matches());
+        // Empty / blank
+        assertFalse(ApiGatewayExecuteController.ELB_LISTENER_ARN.matcher("").matches());
     }
 }

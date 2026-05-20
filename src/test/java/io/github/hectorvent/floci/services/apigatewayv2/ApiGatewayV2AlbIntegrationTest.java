@@ -28,34 +28,13 @@ import java.util.Map;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.*;
 
-/**
- * End-to-end test for the {@code HttpAlbIntegration} request path:
- *
- * <pre>
- *   GET /execute-api/{apiId}/$default/health
- *     → HTTP API v2 route dispatch
- *     → integration with integrationUri = ALB listener ARN
- *     → ElbV2Service.describeListeners → bound listener port
- *     → ElbV2DataPlane round-robin forward
- *     → registered target (a stub HttpServer in this JVM)
- *     → 200 OK with the stub's body
- * </pre>
- *
- * The integration creates the full chain via the public AWS APIs (Query protocol
- * for ELBv2, REST JSON for API Gateway v2) so a regression anywhere along that
- * path is caught here.
- */
+/** End-to-end: HTTP API → ALB listener ARN → ELBv2 data plane → registered stub target. */
 @QuarkusTest
 @TestProfile(ApiGatewayV2AlbIntegrationTest.RealElbV2Profile.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ApiGatewayV2AlbIntegrationTest {
 
-    /**
-     * The default test profile sets {@code floci.services.elbv2.mock=true}, which makes
-     * {@link io.github.hectorvent.floci.services.elbv2.ElbV2DataPlane#startListener} a
-     * no-op — there's nothing to forward through. This profile flips that off so the
-     * listener actually binds a port and proxies to registered targets.
-     */
+    /** Overrides the default {@code elbv2.mock=true} so the listener actually binds. */
     public static class RealElbV2Profile implements QuarkusTestProfile {
         @Override
         public Map<String, String> getConfigOverrides() {
@@ -300,18 +279,7 @@ class ApiGatewayV2AlbIntegrationTest {
         Assertions.fail("listener direct probe never succeeded: " + lastErr);
     }
 
-    /**
-     * The full happy-path:
-     *
-     * <pre>execute-api → dispatchHttpProxyV2 → ALB resolver → java.net.http.HttpClient
-     *   → vertx HttpServer (listener) → vertx HttpClient → sun HttpServer stub</pre>
-     *
-     * The chain only works once {@code HttpProxyInvoker} pins its {@code HttpClient}
-     * to HTTP/1.1 — the default HTTP_2 setting attempts cleartext-HTTP/2 negotiation
-     * against http:// backends, which hangs against Vertx's plain HTTP/1.1 server.
-     * This was verified end-to-end against a running Floci with boto3 driving the
-     * full CDK {@code HttpAlbIntegration} flow.
-     */
+    /** Full HttpAlbIntegration happy path: execute-api → ALB resolver → listener → stub returns 200. */
     @Test
     @Order(11)
     void executeApiReachesStubViaAlb() {

@@ -19,9 +19,25 @@ public class Integration {
     private Map<String, String> responseTemplates;
     private String templateSelectionExpression;
     private Map<String, String> requestParameters;
-    private String connectionId; // VPC Link id when connectionType is VPC_LINK
+    private String connectionId;
 
     public Integration() {}
+
+    /** Shallow copy. Add new fields here so callers like {@code withResolvedUri} keep them. */
+    public Integration(Integration src) {
+        this.integrationId = src.integrationId;
+        this.integrationType = src.integrationType;
+        this.connectionType = src.connectionType;
+        this.integrationUri = src.integrationUri;
+        this.payloadFormatVersion = src.payloadFormatVersion;
+        this.integrationMethod = src.integrationMethod;
+        this.timeoutInMillis = src.timeoutInMillis;
+        this.requestTemplates = src.requestTemplates;
+        this.responseTemplates = src.responseTemplates;
+        this.templateSelectionExpression = src.templateSelectionExpression;
+        this.requestParameters = src.requestParameters;
+        this.connectionId = src.connectionId;
+    }
 
     public String getIntegrationId() { return integrationId; }
     public void setIntegrationId(String integrationId) { this.integrationId = integrationId; }

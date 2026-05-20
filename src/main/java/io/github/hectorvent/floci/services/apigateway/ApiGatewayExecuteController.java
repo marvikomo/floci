@@ -87,13 +87,9 @@ public class ApiGatewayExecuteController {
         this.elbV2Service = elbV2Service;
     }
 
-    /**
-     * Matches an ELBv2 ALB listener ARN. The CDK {@code HttpAlbIntegration} stores one of
-     * these as the integration URI; we need to resolve it to a real {@code http://127.0.0.1:port}
-     * target so the request reaches the listener's data plane and on to the target group.
-     */
-    private static final Pattern ALB_LISTENER_ARN = Pattern.compile(
-            "^arn:aws[^:]*:elasticloadbalancing:([^:]+):[^:]*:listener/app/.+$");
+    /** Matches an ELBv2 listener ARN (ALB {@code app/} or NLB {@code net/}); group 1 = region. */
+    static final Pattern ELB_LISTENER_ARN = Pattern.compile(
+            "^arn:aws[^:]*:elasticloadbalancing:([^:]+):[^:]*:listener/(?:app|net)/.+$");
 
     private record AuthorizerResult(Response errorResponse, String principalId, Map<String, Object> context) {}
 
@@ -1049,7 +1045,7 @@ public class ApiGatewayExecuteController {
         io.github.hectorvent.floci.services.apigatewayv2.model.Integration effective = integration;
         String integrationUri = integration.getIntegrationUri();
         if (integrationUri != null) {
-            Matcher m = ALB_LISTENER_ARN.matcher(integrationUri);
+            Matcher m = ELB_LISTENER_ARN.matcher(integrationUri);
             if (m.matches()) {
                 String albRegion = m.group(1);
                 Integer listenerPort = resolveAlbListenerPort(albRegion, integrationUri);
@@ -1112,11 +1108,7 @@ public class ApiGatewayExecuteController {
         return rb.build();
     }
 
-    /**
-     * Resolves an ALB listener ARN to its bound port via {@link ElbV2Service#describeListeners}.
-     * Returns {@code null} if the listener is unknown (deleted, never created, or the
-     * underlying region has no listener map) or if describeListeners throws.
-     */
+    /** Returns the listener's bound port, or null if the ARN is unknown or describeListeners throws. */
     private Integer resolveAlbListenerPort(String region, String listenerArn) {
         try {
             List<Listener> matches = elbV2Service.describeListeners(region, null, List.of(listenerArn));
@@ -1128,26 +1120,12 @@ public class ApiGatewayExecuteController {
         }
     }
 
-    /**
-     * Returns a shallow copy of {@code original} with its {@code integrationUri} replaced.
-     * The stored Integration must not be mutated — it's the live object held by the store.
-     */
+    /** Shallow copy with {@code integrationUri} replaced; never mutate the stored Integration. */
     private static io.github.hectorvent.floci.services.apigatewayv2.model.Integration withResolvedUri(
             io.github.hectorvent.floci.services.apigatewayv2.model.Integration original, String targetUri) {
         io.github.hectorvent.floci.services.apigatewayv2.model.Integration copy =
-                new io.github.hectorvent.floci.services.apigatewayv2.model.Integration();
-        copy.setIntegrationId(original.getIntegrationId());
-        copy.setIntegrationType(original.getIntegrationType());
-        copy.setConnectionType(original.getConnectionType());
-        copy.setConnectionId(original.getConnectionId());
+                new io.github.hectorvent.floci.services.apigatewayv2.model.Integration(original);
         copy.setIntegrationUri(targetUri);
-        copy.setIntegrationMethod(original.getIntegrationMethod());
-        copy.setPayloadFormatVersion(original.getPayloadFormatVersion());
-        copy.setRequestParameters(original.getRequestParameters());
-        copy.setRequestTemplates(original.getRequestTemplates());
-        copy.setResponseTemplates(original.getResponseTemplates());
-        copy.setTemplateSelectionExpression(original.getTemplateSelectionExpression());
-        copy.setTimeoutInMillis(original.getTimeoutInMillis());
         return copy;
     }
 

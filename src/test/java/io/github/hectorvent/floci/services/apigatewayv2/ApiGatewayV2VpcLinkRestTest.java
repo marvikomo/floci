@@ -12,11 +12,7 @@ import org.junit.jupiter.api.TestMethodOrder;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.*;
 
-/**
- * REST tests for {@code /v2/vpclinks} CRUD and for the {@code connectionId} field
- * on Integration (the {@code connectionType} field is covered separately by
- * {@code IntegrationConnectionTypeAndAuthorizerSimpleResponsesTest}).
- */
+/** REST tests for {@code /v2/vpclinks} CRUD + Integration {@code connectionId} round-trip. */
 @QuarkusTest
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ApiGatewayV2VpcLinkRestTest {

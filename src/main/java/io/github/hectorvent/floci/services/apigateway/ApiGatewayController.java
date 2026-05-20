@@ -1,6 +1,7 @@
 package io.github.hectorvent.floci.services.apigateway;
 
 import java.io.IOException;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -1745,7 +1746,7 @@ public class ApiGatewayController {
         if (v.getName() != null) node.put("name", v.getName());
         if (v.getVpcLinkStatus() != null) node.put("vpcLinkStatus", v.getVpcLinkStatus());
         node.put("vpcLinkVersion", "V2");
-        node.put("createdDate", java.time.Instant.ofEpochMilli(v.getCreatedDate()).toString());
+        node.put("createdDate", Instant.ofEpochMilli(v.getCreatedDate()).toString());
         if (v.getSubnetIds() != null) {
             ArrayNode subnets = node.putArray("subnetIds");
             v.getSubnetIds().forEach(subnets::add);

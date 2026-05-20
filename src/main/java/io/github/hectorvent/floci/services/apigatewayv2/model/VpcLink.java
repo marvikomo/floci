@@ -6,13 +6,7 @@ import io.quarkus.runtime.annotations.RegisterForReflection;
 import java.util.List;
 import java.util.Map;
 
-/**
- * An API Gateway v2 VPC Link — the private connection an HTTP API uses to reach
- * resources inside a VPC (e.g. an internal ALB listener).
- *
- * <p>Floci has no real VPC, so a VPC Link is provisioned as {@code AVAILABLE}
- * immediately on creation.
- */
+/** API Gateway v2 VPC Link; Floci has no real VPC so it's provisioned AVAILABLE immediately. */
 @RegisterForReflection
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class VpcLink {
