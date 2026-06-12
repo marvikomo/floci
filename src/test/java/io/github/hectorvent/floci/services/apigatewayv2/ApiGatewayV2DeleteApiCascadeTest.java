@@ -2,39 +2,96 @@ package io.github.hectorvent.floci.services.apigatewayv2;
 
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.http.ContentType;
-import org.junit.jupiter.api.MethodOrderer;
-import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.TestMethodOrder;
+
+import java.util.List;
 
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.*;
 
 @QuarkusTest
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ApiGatewayV2DeleteApiCascadeTest {
 
-    private static String apiId;
-    private static String routeId;
-    private static String integrationId;
+    @Test
+    void deleteApiCascadesEveryChildResourceAnd404sOnSubsequentReferences() {
+        String apiId = null;
+        try {
+            // 1. setup: create the API and every flavor of child resource under it.
+            apiId = createApi("cascade-probe");
+            String integrationId = createIntegration(apiId);
+            String routeId = createRoute(apiId, integrationId);
+            createStage(apiId);
+            createAuthorizer(apiId);
+            createDeployment(apiId);
+            createModel(apiId);
+            createRouteResponse(apiId, routeId);
+            createIntegrationResponse(apiId, integrationId);
+
+            // 2. delete the API.
+            given().when().delete("/v2/apis/" + apiId).then().statusCode(204);
+
+            // 3. every reference to the deleted apiId must 404.
+            List<String> probes = List.of(
+                    "",
+                    "/routes",
+                    "/integrations",
+                    "/stages",
+                    "/authorizers",
+                    "/deployments",
+                    "/models",
+                    "/routes/" + routeId + "/routeresponses",
+                    "/integrations/" + integrationId + "/integrationresponses"
+            );
+            for (String suffix : probes) {
+                given().when().get("/v2/apis/" + apiId + suffix)
+                        .then().statusCode(404);
+            }
+        } finally {
+            // best-effort cleanup in case any assertion above failed before delete-api ran.
+            if (apiId != null) {
+                given().when().delete("/v2/apis/" + apiId);
+            }
+        }
+    }
 
     @Test
-    @Order(1)
-    void createApi() {
-        apiId = given()
+    void cascadeIsScopedToSingleApi() {
+        // Create two APIs with children under each; delete only api A; api B's children must remain.
+        String aId = null;
+        String bId = null;
+        try {
+            aId = createApi("cascade-iso-a");
+            bId = createApi("cascade-iso-b");
+            createIntegration(aId);
+            createIntegration(bId);
+
+            given().when().delete("/v2/apis/" + aId).then().statusCode(204);
+
+            // A is gone — every reference 404s.
+            given().when().get("/v2/apis/" + aId + "/integrations").then().statusCode(404);
+
+            // B is untouched.
+            given().when().get("/v2/apis/" + bId + "/integrations")
+                    .then().statusCode(200).body("items", hasSize(1));
+        } finally {
+            if (bId != null) given().when().delete("/v2/apis/" + bId);
+            if (aId != null) given().when().delete("/v2/apis/" + aId);
+        }
+    }
+
+    // ──────────────────────────── creation helpers ────────────────────────────
+
+    private static String createApi(String name) {
+        return given()
                 .contentType(ContentType.JSON)
-                .body("""
-                        {"name":"cascade-probe","protocolType":"HTTP"}
-                        """)
+                .body("{\"name\":\"" + name + "\",\"protocolType\":\"HTTP\"}")
                 .when().post("/v2/apis")
                 .then().statusCode(201)
                 .extract().path("apiId");
     }
 
-    @Test
-    @Order(2)
-    void createIntegration() {
-        integrationId = given()
+    private static String createIntegration(String apiId) {
+        return given()
                 .contentType(ContentType.JSON)
                 .body("""
                         {"integrationType":"HTTP_PROXY","integrationUri":"https://example.com",
@@ -45,10 +102,8 @@ class ApiGatewayV2DeleteApiCascadeTest {
                 .extract().path("integrationId");
     }
 
-    @Test
-    @Order(3)
-    void createRoute() {
-        routeId = given()
+    private static String createRoute(String apiId, String integrationId) {
+        return given()
                 .contentType(ContentType.JSON)
                 .body("""
                         {"routeKey":"GET /hello","target":"integrations/%s"}
@@ -58,9 +113,7 @@ class ApiGatewayV2DeleteApiCascadeTest {
                 .extract().path("routeId");
     }
 
-    @Test
-    @Order(4)
-    void createStage() {
+    private static void createStage(String apiId) {
         given()
                 .contentType(ContentType.JSON)
                 .body("""
@@ -70,9 +123,7 @@ class ApiGatewayV2DeleteApiCascadeTest {
                 .then().statusCode(201);
     }
 
-    @Test
-    @Order(5)
-    void createAuthorizer() {
+    private static void createAuthorizer(String apiId) {
         given()
                 .contentType(ContentType.JSON)
                 .body("""
@@ -84,9 +135,7 @@ class ApiGatewayV2DeleteApiCascadeTest {
                 .then().statusCode(201);
     }
 
-    @Test
-    @Order(6)
-    void createDeployment() {
+    private static void createDeployment(String apiId) {
         given()
                 .contentType(ContentType.JSON)
                 .body("""
@@ -96,9 +145,7 @@ class ApiGatewayV2DeleteApiCascadeTest {
                 .then().statusCode(201);
     }
 
-    @Test
-    @Order(7)
-    void createModel() {
+    private static void createModel(String apiId) {
         given()
                 .contentType(ContentType.JSON)
                 .body("""
@@ -109,9 +156,7 @@ class ApiGatewayV2DeleteApiCascadeTest {
                 .then().statusCode(201);
     }
 
-    @Test
-    @Order(8)
-    void createRouteResponse() {
+    private static void createRouteResponse(String apiId, String routeId) {
         given()
                 .contentType(ContentType.JSON)
                 .body("""
@@ -121,9 +166,7 @@ class ApiGatewayV2DeleteApiCascadeTest {
                 .then().statusCode(201);
     }
 
-    @Test
-    @Order(9)
-    void createIntegrationResponse() {
+    private static void createIntegrationResponse(String apiId, String integrationId) {
         given()
                 .contentType(ContentType.JSON)
                 .body("""
@@ -131,119 +174,5 @@ class ApiGatewayV2DeleteApiCascadeTest {
                         """)
                 .when().post("/v2/apis/" + apiId + "/integrations/" + integrationId + "/integrationresponses")
                 .then().statusCode(201);
-    }
-
-    // ──────────────────────────── the kill ────────────────────────────
-
-    @Test
-    @Order(20)
-    void deleteApi() {
-        given()
-                .when().delete("/v2/apis/" + apiId)
-                .then().statusCode(204);
-    }
-
-    // ──────────────────────────── every reference to the deleted apiId must 404 ────────────────────────────
-
-    @Test
-    @Order(21)
-    void getApiReturns404() {
-        given().when().get("/v2/apis/" + apiId).then().statusCode(404);
-    }
-
-    @Test
-    @Order(22)
-    void getRoutesReturns404() {
-        given().when().get("/v2/apis/" + apiId + "/routes").then().statusCode(404);
-    }
-
-    @Test
-    @Order(23)
-    void getIntegrationsReturns404() {
-        given().when().get("/v2/apis/" + apiId + "/integrations").then().statusCode(404);
-    }
-
-    @Test
-    @Order(24)
-    void getStagesReturns404() {
-        given().when().get("/v2/apis/" + apiId + "/stages").then().statusCode(404);
-    }
-
-    @Test
-    @Order(25)
-    void getAuthorizersReturns404() {
-        given().when().get("/v2/apis/" + apiId + "/authorizers").then().statusCode(404);
-    }
-
-    @Test
-    @Order(26)
-    void getDeploymentsReturns404() {
-        given().when().get("/v2/apis/" + apiId + "/deployments").then().statusCode(404);
-    }
-
-    @Test
-    @Order(27)
-    void getModelsReturns404() {
-        given().when().get("/v2/apis/" + apiId + "/models").then().statusCode(404);
-    }
-
-    @Test
-    @Order(28)
-    void getRouteResponsesReturns404() {
-        given().when().get("/v2/apis/" + apiId + "/routes/" + routeId + "/routeresponses")
-                .then().statusCode(404);
-    }
-
-    @Test
-    @Order(29)
-    void getIntegrationResponsesReturns404() {
-        given().when().get("/v2/apis/" + apiId + "/integrations/" + integrationId + "/integrationresponses")
-                .then().statusCode(404);
-    }
-
-    // ──────────────────────────── isolation — a sibling API must NOT be touched ────────────────────────────
-
-    @Test
-    @Order(40)
-    void cascadeIsScopedToSingleApi() {
-        // Create two APIs; create children under each; delete only api A; api B's children must remain.
-        String aId = given()
-                .contentType(ContentType.JSON)
-                .body("{\"name\":\"cascade-iso-a\",\"protocolType\":\"HTTP\"}")
-                .when().post("/v2/apis").then().statusCode(201).extract().path("apiId");
-
-        String bId = given()
-                .contentType(ContentType.JSON)
-                .body("{\"name\":\"cascade-iso-b\",\"protocolType\":\"HTTP\"}")
-                .when().post("/v2/apis").then().statusCode(201).extract().path("apiId");
-
-        try {
-            given()
-                    .contentType(ContentType.JSON)
-                    .body("""
-                            {"integrationType":"HTTP_PROXY","integrationUri":"https://a.example",
-                             "integrationMethod":"GET","payloadFormatVersion":"1.0"}
-                            """)
-                    .when().post("/v2/apis/" + aId + "/integrations").then().statusCode(201);
-
-            given()
-                    .contentType(ContentType.JSON)
-                    .body("""
-                            {"integrationType":"HTTP_PROXY","integrationUri":"https://b.example",
-                             "integrationMethod":"GET","payloadFormatVersion":"1.0"}
-                            """)
-                    .when().post("/v2/apis/" + bId + "/integrations").then().statusCode(201);
-
-            given().when().delete("/v2/apis/" + aId).then().statusCode(204);
-
-            // A is gone — every reference 404s
-            given().when().get("/v2/apis/" + aId + "/integrations").then().statusCode(404);
-
-            // B is untouched
-            given().when().get("/v2/apis/" + bId + "/integrations")
-                    .then().statusCode(200).body("items", hasSize(1));
-        } finally {
-            given().when().delete("/v2/apis/" + bId);
-        }
     }
 }

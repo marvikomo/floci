@@ -128,15 +128,19 @@ public class ApiGatewayV2Service {
         // Cascade-delete every child resource keyed under region::apiId::*.
         // VpcLink is region-scoped (region::vpcLinkId, shared across APIs) and excluded.
         String prefix = region + "::" + apiId + "::";
-        routeStore.keys().stream().filter(k -> k.startsWith(prefix)).forEach(routeStore::delete);
-        integrationStore.keys().stream().filter(k -> k.startsWith(prefix)).forEach(integrationStore::delete);
-        authorizerStore.keys().stream().filter(k -> k.startsWith(prefix)).forEach(authorizerStore::delete);
-        deploymentStore.keys().stream().filter(k -> k.startsWith(prefix)).forEach(deploymentStore::delete);
-        stageStore.keys().stream().filter(k -> k.startsWith(prefix)).forEach(stageStore::delete);
-        modelStore.keys().stream().filter(k -> k.startsWith(prefix)).forEach(modelStore::delete);
-        routeResponseStore.keys().stream().filter(k -> k.startsWith(prefix)).forEach(routeResponseStore::delete);
-        integrationResponseStore.keys().stream().filter(k -> k.startsWith(prefix)).forEach(integrationResponseStore::delete);
+        deleteByPrefix(routeStore, prefix);
+        deleteByPrefix(integrationStore, prefix);
+        deleteByPrefix(authorizerStore, prefix);
+        deleteByPrefix(deploymentStore, prefix);
+        deleteByPrefix(stageStore, prefix);
+        deleteByPrefix(modelStore, prefix);
+        deleteByPrefix(routeResponseStore, prefix);
+        deleteByPrefix(integrationResponseStore, prefix);
         LOG.infov("Deleted HTTP API: {0} in {1}", apiId, region);
+    }
+
+    private static void deleteByPrefix(StorageBackend<String, ?> store, String prefix) {
+        store.keys().stream().filter(k -> k.startsWith(prefix)).forEach(store::delete);
     }
 
     public Api updateApi(String region, String apiId, Map<String, Object> request) {
